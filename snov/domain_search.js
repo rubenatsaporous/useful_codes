@@ -127,70 +127,130 @@ SNOV.db_searcher = async function(input) {
         WHERE domain = '${input.domain_list[pos].domain}'
     `;
     let conn;
-    input.pos += 1;
     try {
         conn = await pool.getConnection();
         const rows = await conn.query(sql);
+        let domain_search_params;
+        let exists;
+        let result;
         if (rows) {
             console.log(`${rows[0].domain} - ${rows[0].lastID}`);
-            SNOV.domain_search({
+            domain_search_params = {
                 domain: rows[0].domain,
-                lastId: rows[0].lastID,
-                accessToken: input.accessToken
-            }).then(async (result) => {
-                if(result.success) {
-                    const emails = result.data.emails.reduce((o, a) => {
-                        let ini = [];
-                        ini.push((a.email == '' || a.email == 'undefined') ? null : a.email);
-                        ini.push((a.firstName == '' || a.firstName == 'undefined') ? null : a.firstName);
-                        ini.push((a.lastName == '' || a.lastName == 'undefined') ? null : a.lastName);
-                        ini.push((a.position == '' || a.position == 'undefined') ? null : a.position);
-                        ini.push((a.companyName == '' || a.companyName == 'undefined') ? null : a.companyName);
-                        ini.push((a.type == '' || a.type == 'undefined') ? null : a.type);
-                        ini.push((a.status == '' || a.status == 'undefined') ? null : a.status);
-                        ini.push(input.list_name);
-                        o.push(ini);
-                        return o;
-                    }, []);
-                    await SNOV.db_inserter({
-                        emails: emails
-                    });
-                } else {
-                    console.log(`${rows[0].domain} - ${result.message}`);
-                    SNOV.processor(input);
-                }
-            });
+                lastId: rows[0].lastID
+            };
+            exists = true;
+        } else {
+            domain_search_params = {
+                domain: input.domain_list[pos].domain,
+                lastId: 0
+            };
+            exists = false;
         }
+        SNOV.domain_search({
+            domain: domain_search_params.domain,
+            lastId: domain_search_params.lastId,
+            accessToken: input.accessToken
+        }).then((res) => {
+            result = res;
+        });
     } catch (err) {
         throw err;
     } finally {
-        if (conn) return conn.end();
+        if (conn) {
+            return conn.end().then(() => {
+                if(result.success) {
+                    if(result.data.result > 0) {
+                        SNOV.db_inserter({
+                            input: input,
+                            data: result.data,
+                            exists: exists
+                        });
+                    } else {
+                        input.pos += 1;
+                        SNOV.processor(input);
+                    }
+                } else {
+                    input.pos += 1;
+                    console.log(`${rows[0].domain} - ${result.message}`);
+                    SNOV.processor(input);
+                }
+            })
+        } else {
+            console.error(`connection stopped db_searcher for domain ${input.domain_list[pos].domain}`);
+        };
     }
 }
 
 SNOV.db_inserter = async function(input) {
-    let sql = `
+    let sql_1 = `
         INSERT INTO snov_results(
             email,
             firstName,
             lastName,
             position_,
+            sourcePage,
             companyName,
             type_,
             status_,
             list_name
         )
-        values (?,?,?,?,?,?,?,?)
+        values (?,?,?,?,?,?,?,?,?)
+    `;
+    let sql_2 = `
+        UPDATE snovedurls
+        SET lastID = ?,
+            currentDate = ?
+        WHERE domain = ?
+    `;
+    let sql_3 = `
+        INSERT INTO snovedurls(
+            domain,
+            lastID,
+            currentDate
+        )
+        values (?,?,?)
     `;
     let conn;
+    const emails = input.data.emails.reduce((o, a) => {
+        let ini = [];
+        ini.push((a.email == '' || a.email == 'undefined' || a.email == undefined) ? null : a.email);
+        ini.push((a.firstName == '' || a.firstName == 'undefined' || a.firstName == undefined) ? null : a.firstName);
+        ini.push((a.lastName == '' || a.lastName == 'undefined' || a.lastName == undefined) ? null : a.lastName);
+        ini.push((a.sourcePage == '' || a.sourcePage == 'undefined' || a.sourcePage == undefined) ? null : a.sourcePage);
+        ini.push((a.position == '' || a.position == 'undefined' || a.position == undefined) ? null : a.position);
+        ini.push((a.companyName == '' || a.companyName == 'undefined' || a.companyName == undefined) ? null : a.companyName);
+        ini.push((a.type == '' || a.type == 'undefined' || a.type == undefined) ? null : a.type);
+        ini.push((a.status == '' || a.status == 'undefined' || a.status == undefined) ? null : a.status);
+        ini.push(input.input.list_name);
+        o.push(ini);
+        return o;
+    }, []);
     try {
         conn = await pool.getConnection();
-        const res = await conn.batch(sql, input.emails);
-        console.log(res);
+        const res_1 = await conn.batch(sql_1, emails);
+        console.log(res_1);
+        const date = new Date();
+        const formatted_date = `${date.getFullYear()}-${date.getMonth()+1}-${date.getDate()}`;
+        let res_2;
+        if(input.exists) {
+            res_2 = await conn.query(sql_2, [input.data.lastId, formatted_date, input.data.domain]);
+        } else {
+            res_2 = await conn.query(sql_3, [input.data.domain, input.data.lastId, formatted_date]);
+        }
+        console.log(res_2);
     } catch (err) {
         throw err;
     } finally {
-        if (conn) return conn.end();
+        if (conn) return conn.end().then(() => {
+            if (input.data.result === 100) {
+                console.log('we must continue in this domain');
+            } else {
+                console.log('we must go to the next domain');
+                // inpuy.input.pos += 1;
+            }
+            // SNOV.processor(inpuy.input);
+        });
     }
 }
 
@@ -227,7 +287,40 @@ SNOV.processor = function(input) {
     }
 }
 
+/*
 SNOV.reader({
     file: 'files/domain_search_test.csv',
     list_name: 'test_20220122'
-});
+});*/
+
+SNOV.db_inserter({
+    input: {
+        rowCount: 25,
+        domain_list: [],
+        pos: 0,
+        list_name: 'primera prueba',
+        accessToken: '464sr6f4se6r5g484'
+    },
+    data: {
+        "success": true,
+        "domain": "octagon.com",
+        "webmail": false,
+        "result": 100,
+        "lastId": 1234567890,
+        "limit": 100,
+        "companyName": "Octagon",
+        "emails": [
+            {
+                "email": "ben.gillespie@octagon.com",
+                "firstName": "Ben",
+                "lastName": "Gillespie",
+                "position": "Senior Account Executive",
+                "sourcePage": "https://www.linkedin.com/pub/ben-gillespie/7/73/809",
+                "companyName": "Octagon",
+                "type": "prospect",
+                "status": "verified"
+            }
+        ]
+    },
+    exists: true
+})

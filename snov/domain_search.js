@@ -119,69 +119,6 @@ SNOV.domain_search = async function(input) {
     return response;
 };
 
-SNOV.db_searcher = async function(input) {
-    let pos = input.pos;
-    let sql = `
-        SELECT *
-        FROM snovedurls
-        WHERE domain = '${input.domain_list[pos].domain}'
-    `;
-    let conn;
-    try {
-        conn = await pool.getConnection();
-        const rows = await conn.query(sql);
-        let domain_search_params;
-        let exists;
-        let result;
-        if (rows) {
-            console.log(`${rows[0].domain} - ${rows[0].lastID}`);
-            domain_search_params = {
-                domain: rows[0].domain,
-                lastId: rows[0].lastID
-            };
-            exists = true;
-        } else {
-            domain_search_params = {
-                domain: input.domain_list[pos].domain,
-                lastId: 0
-            };
-            exists = false;
-        }
-        SNOV.domain_search({
-            domain: domain_search_params.domain,
-            lastId: domain_search_params.lastId,
-            accessToken: input.accessToken
-        }).then((res) => {
-            result = res;
-        });
-    } catch (err) {
-        throw err;
-    } finally {
-        if (conn) {
-            return conn.end().then(() => {
-                if(result.success) {
-                    if(result.data.result > 0) {
-                        SNOV.db_inserter({
-                            input: input,
-                            data: result.data,
-                            exists: exists
-                        });
-                    } else {
-                        input.pos += 1;
-                        SNOV.processor(input);
-                    }
-                } else {
-                    input.pos += 1;
-                    console.log(`${rows[0].domain} - ${result.message}`);
-                    SNOV.processor(input);
-                }
-            })
-        } else {
-            console.error(`connection stopped db_searcher for domain ${input.domain_list[pos].domain}`);
-        };
-    }
-}
-
 SNOV.db_inserter = async function(input) {
     let sql_1 = `
         INSERT INTO snov_results(
@@ -240,6 +177,7 @@ SNOV.db_inserter = async function(input) {
         }
         console.log(res_2);
     } catch (err) {
+        console.error(err);
         throw err;
     } finally {
         if (conn) return conn.end().then(() => {
@@ -247,14 +185,112 @@ SNOV.db_inserter = async function(input) {
                 console.log('we must continue in this domain');
             } else {
                 console.log('we must go to the next domain');
-                // inpuy.input.pos += 1;
+                input.input.pos += 1;
             }
-            // SNOV.processor(inpuy.input);
+            SNOV.processor(input.input);
         });
     }
 }
 
+SNOV.db_searcher = async function(input) {
+    // check if the domain exists in the table snovedurls, if it does, applies the domain search with the last ID gotten, if not, applies domain search from beginning
+    /* input: {
+        rowCount: number,
+        domain_list: string,
+        pos: number,
+        list_name: string,
+        accessToken: string
+    } */
+    let pos = input.pos;
+    let sql = `
+        SELECT *
+        FROM snovedurls
+        WHERE domain = '${input.domain_list[pos].domain}'
+    `;
+    let conn;
+    let domain_search_params;
+    let exists;
+    let result;
+    try {
+        conn = await pool.getConnection();
+        const rows = await conn.query(sql);
+        if (rows) {
+            console.log(`${rows[0].domain} - ${rows[0].lastID}`);
+            domain_search_params = {
+                domain: rows[0].domain,
+                lastId: rows[0].lastID
+            };
+            exists = true;
+        } else {
+            domain_search_params = {
+                domain: input.domain_list[pos].domain,
+                lastId: 0
+            };
+            exists = false;
+        }
+        result = await SNOV.domain_search({
+            domain: domain_search_params.domain,
+            lastId: domain_search_params.lastId,
+            accessToken: input.accessToken
+        }).then((res) => {
+            return res;
+        });
+    } catch (err) {
+        console.error(`error in the db_searcher in domain ${input.domain_list[pos].domain}`);
+        throw err;
+    } finally {
+        if (conn) {
+            return conn.end().then(() => {
+                if(result.success) {
+                    if(result.data.result > 0) {
+                        SNOV.db_inserter({
+                            input: input,
+                            data: result.data,
+                            exists: exists
+                        });
+                    } else {
+                        input.pos += 1;
+                        SNOV.processor(input);
+                    }
+                } else {
+                    input.pos += 1;
+                    console.log(`${input.domain_list[pos].domain} - ${result.message}`);
+                    if (result.message !== 'Sorry, you ran out of credits, please order more credits') {
+                        SNOV.processor(input);
+                    } else {
+                        console.log('End');
+                        return;
+                    }
+                }
+            })
+        } else {
+            console.error(`connection could not be started for db_searcher for domain ${input.domain_list[pos].domain}`);
+        };
+    }
+}
+
+SNOV.processor = function(input) {
+    // compares the amount of domains in the file with the current domain being processed
+    /* input: {
+        rowCount: number,
+        domain_list: string,
+        pos: number,
+        list_name: string,
+        accessToken: string
+    } */
+    if(input.pos < input.rowCount) {
+        SNOV.db_searcher(input);
+    } else {
+        console.log('end');
+    }
+}
+
 SNOV.reader = async function(input) {
+    // reads the csv file with header 'domain' and then with the results starts processing. Also gets the access token to be used in the snov api for up 3600 seconds
+    /* input: {
+        file: String
+        list_name: String
+    } */
     const domain_list = [];
     const accessToken = (await SNOV.accessToken()).access_token;
     fast_csv.parseFile(input.file, {
@@ -267,7 +303,7 @@ SNOV.reader = async function(input) {
                     domain_list.push(row);
                 })
                 .on('end', rowCount => {
-                    console.log(rowCount);
+                    console.log(`there are ${rowCount} domains in the file`);
                     const input_ = {
                         rowCount: rowCount,
                         domain_list: domain_list,
@@ -279,48 +315,8 @@ SNOV.reader = async function(input) {
                 });
 };
 
-SNOV.processor = function(input) {
-    if(input.pos < input.rowCount) {
-        SNOV.db_searcher(input);
-    } else {
-        console.log('end');
-    }
-}
 
-/*
 SNOV.reader({
     file: 'files/domain_search_test.csv',
-    list_name: 'test_20220122'
-});*/
-
-SNOV.db_inserter({
-    input: {
-        rowCount: 25,
-        domain_list: [],
-        pos: 0,
-        list_name: 'primera prueba',
-        accessToken: '464sr6f4se6r5g484'
-    },
-    data: {
-        "success": true,
-        "domain": "octagon.com",
-        "webmail": false,
-        "result": 100,
-        "lastId": 1234567890,
-        "limit": 100,
-        "companyName": "Octagon",
-        "emails": [
-            {
-                "email": "ben.gillespie@octagon.com",
-                "firstName": "Ben",
-                "lastName": "Gillespie",
-                "position": "Senior Account Executive",
-                "sourcePage": "https://www.linkedin.com/pub/ben-gillespie/7/73/809",
-                "companyName": "Octagon",
-                "type": "prospect",
-                "status": "verified"
-            }
-        ]
-    },
-    exists: true
-})
+    list_name: 'test_20220123'
+});

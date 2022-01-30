@@ -214,11 +214,11 @@ SNOV.db_searcher = async function(input) {
     try {
         conn = await pool.getConnection();
         const rows = await conn.query(sql);
-        if (rows) {
+        if (rows && rows.length > 0) {
             console.log(`${rows[0].domain} - ${rows[0].lastID}`);
             domain_search_params = {
                 domain: rows[0].domain,
-                lastId: rows[0].lastID
+                lastId: rows[0].lastID === null ? 0 : rows[0].lastID
             };
             exists = true;
         } else {
@@ -315,8 +315,39 @@ SNOV.reader = async function(input) {
                 });
 };
 
+SNOV.db_searcher_test = async function(input) {
+    let sql = `
+        SELECT *
+        FROM snovedurls
+        WHERE domain = '${input.domain}'
+    `;
+    let conn;
+    let rows;
+    try {
+        conn = await pool.getConnection();
+        rows = await conn.query(sql);
+    } catch (err) {
+        console.error(`error in the db_searcher in domain ${input.domain}`);
+        throw err;
+    } finally {
+        if (conn) {
+            return conn.end().then(() => {
+                console.log(rows[0].lastID === null ? 'it works' : 'it does not work');
+            });
+        } else {
+            console.error(`connection could not be started for db_searcher for domain ${input.domain_list[pos].domain}`);
+        };
+    }
+};
+
 
 SNOV.reader({
     file: 'files/domain_search_test.csv',
     list_name: 'test_20220123'
 });
+
+/*
+SNOV.db_searcher_test({
+    domain: 'leaftyme.com'
+});
+*/

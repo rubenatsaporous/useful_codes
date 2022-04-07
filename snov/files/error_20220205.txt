@@ -1,0 +1,18 @@
+  text: "Incorrect string value: '\\xD0\\xAE\\xD0\\xBB\\xD0\\xB8...' for column `emailsdatabase`.`snov_results`.`firstName` at row 6",
+  sql: '\n' +
+    '        INSERT INTO snov_results(\n' +
+    '            email,\n' +
+    '            firstName,\n' +
+    '            lastName,\n' +
+    '            position_,\n' +
+    '            sourcePage,\n' +
+    '            companyName,\n' +
+    '            type_,\n' +
+    '            status_,\n' +
+    '            list_name\n' +
+    '        )\n' +
+    '        value...',
+  fatal: false,
+  errno: 1366,
+  sqlState: '22007',
+  code: 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD'

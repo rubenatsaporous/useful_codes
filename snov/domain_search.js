@@ -1,6 +1,7 @@
 const axios = require('axios');
 const fast_csv = require('fast-csv');
 const mariadb = require('mariadb');
+const now = require('performance-now');
 const pool = mariadb.createPool({
     password: '18657395',
     connectionLimit: 5,
@@ -154,8 +155,8 @@ SNOV.db_inserter = async function(input) {
         ini.push((a.email == '' || a.email == 'undefined' || a.email == undefined) ? null : a.email);
         ini.push((a.firstName == '' || a.firstName == 'undefined' || a.firstName == undefined) ? null : a.firstName);
         ini.push((a.lastName == '' || a.lastName == 'undefined' || a.lastName == undefined) ? null : a.lastName);
-        ini.push((a.sourcePage == '' || a.sourcePage == 'undefined' || a.sourcePage == undefined) ? null : a.sourcePage);
         ini.push((a.position == '' || a.position == 'undefined' || a.position == undefined) ? null : a.position);
+        ini.push((a.sourcePage == '' || a.sourcePage == 'undefined' || a.sourcePage == undefined) ? null : a.sourcePage);
         ini.push((a.companyName == '' || a.companyName == 'undefined' || a.companyName == undefined) ? null : a.companyName);
         ini.push((a.type == '' || a.type == 'undefined' || a.type == undefined) ? null : a.type);
         ini.push((a.status == '' || a.status == 'undefined' || a.status == undefined) ? null : a.status);
@@ -222,6 +223,7 @@ SNOV.db_searcher = async function(input) {
             };
             exists = true;
         } else {
+            console.log(`${input.domain_list[pos].domain} - new`);
             domain_search_params = {
                 domain: input.domain_list[pos].domain,
                 lastId: 0
@@ -237,11 +239,13 @@ SNOV.db_searcher = async function(input) {
         });
     } catch (err) {
         console.error(`error in the db_searcher in domain ${input.domain_list[pos].domain}`);
-        throw err;
+        console.error(err);
+        input.pos += 1;
+        SNOV.processor(input);
     } finally {
         if (conn) {
             return conn.end().then(() => {
-                if(result.success) {
+                if(result && result.success) {
                     if(result.data.result > 0) {
                         SNOV.db_inserter({
                             input: input,
@@ -269,7 +273,7 @@ SNOV.db_searcher = async function(input) {
     }
 }
 
-SNOV.processor = function(input) {
+SNOV.processor = async function(input) {
     // compares the amount of domains in the file with the current domain being processed
     /* input: {
         rowCount: number,
@@ -278,6 +282,12 @@ SNOV.processor = function(input) {
         list_name: string,
         accessToken: string
     } */
+    if(now().toFixed(3) - input.timer.toFixed(3) > 1800000.000) {
+        input.accessToken = (await SNOV.accessToken()).access_token;
+        input.timer = now();
+        console.log(input.accessToken);
+    }
+
     if(input.pos < input.rowCount) {
         SNOV.db_searcher(input);
     } else {
@@ -293,6 +303,7 @@ SNOV.reader = async function(input) {
     } */
     const domain_list = [];
     const accessToken = (await SNOV.accessToken()).access_token;
+    const timer = now();
     fast_csv.parseFile(input.file, {
         headers: true
     })
@@ -309,7 +320,8 @@ SNOV.reader = async function(input) {
                         domain_list: domain_list,
                         pos: 0,
                         list_name: input.list_name,
-                        accessToken: accessToken
+                        accessToken: accessToken,
+                        timer: timer
                     };
                     SNOV.processor(input_);
                 });
@@ -340,11 +352,153 @@ SNOV.db_searcher_test = async function(input) {
     }
 };
 
+SNOV.single_domain_search = async function(input) {
 
+    /*
+    input = {
+        domain: '',
+        list_name: ''
+    }
+     */
+
+    const accessToken = (await SNOV.accessToken()).access_token;
+    let sql = `
+        SELECT *
+        FROM snovedurls
+        WHERE domain = '${input.domain}'
+    `;
+    let conn;
+    let domain_search_params;
+    let exists;
+    let result;
+    try {
+        conn = await pool.getConnection();
+        const rows = await conn.query(sql);
+        if (rows && rows.length > 0) {
+            console.log(`${rows[0].domain} - ${rows[0].lastID}`);
+            domain_search_params = {
+                domain: rows[0].domain,
+                lastId: rows[0].lastID === null ? 0 : rows[0].lastID
+            };
+            exists = true;
+        } else {
+            console.log(`${input.domain} - new`);
+            domain_search_params = {
+                domain: input.domain,
+                lastId: 0
+            };
+            exists = false;
+        }
+        result = await SNOV.domain_search({
+            domain: domain_search_params.domain,
+            lastId: domain_search_params.lastId,
+            accessToken: accessToken
+        }).then((res) => {
+            return res;
+        });
+    } catch (err) {
+        console.error(`error in the db_searcher in domain ${input.domain}`);
+        console.error(err);
+    } finally {
+        if (conn) {
+            return conn.end().then(async () => {
+                if(result && result.success) {
+                    if(result.data.result > 0) {
+                        let sql_1 = `
+                            INSERT INTO snov_results(
+                                email,
+                                firstName,
+                                lastName,
+                                position_,
+                                sourcePage,
+                                companyName,
+                                type_,
+                                status_,
+                                list_name
+                            )
+                            values (?,?,?,?,?,?,?,?,?)
+                        `;
+                        let sql_2 = `
+                            UPDATE snovedurls
+                            SET lastID = ?,
+                                currentDate = ?
+                            WHERE domain = ?
+                        `;
+                        let sql_3 = `
+                            INSERT INTO snovedurls(
+                                domain,
+                                lastID,
+                                currentDate
+                            )
+                            values (?,?,?)
+                        `;
+                        const emails = result.data.emails.reduce((o, a) => {
+                            let ini = [];
+                            ini.push((a.email == '' || a.email == 'undefined' || a.email == undefined) ? null : a.email);
+                            ini.push((a.firstName == '' || a.firstName == 'undefined' || a.firstName == undefined) ? null : a.firstName);
+                            ini.push((a.lastName == '' || a.lastName == 'undefined' || a.lastName == undefined) ? null : a.lastName);
+                            ini.push((a.position == '' || a.position == 'undefined' || a.position == undefined) ? null : a.position);
+                            ini.push((a.sourcePage == '' || a.sourcePage == 'undefined' || a.sourcePage == undefined) ? null : a.sourcePage);
+                            ini.push((a.companyName == '' || a.companyName == 'undefined' || a.companyName == undefined) ? null : a.companyName);
+                            ini.push((a.type == '' || a.type == 'undefined' || a.type == undefined) ? null : a.type);
+                            ini.push((a.status == '' || a.status == 'undefined' || a.status == undefined) ? null : a.status);
+                            ini.push(input.list_name);
+                            o.push(ini);
+                            return o;
+                        }, []);
+                        try {
+                            const res_1 = await conn.batch(sql_1, emails);
+                            console.log(res_1);
+                            const date = new Date();
+                            const formatted_date = `${date.getFullYear()}-${date.getMonth()+1}-${date.getDate()}`;
+                            let res_2;
+                            if(exists) {
+                                res_2 = await conn.query(sql_2, [result.data.lastId, formatted_date, result.data.domain]);
+                            } else {
+                                res_2 = await conn.query(sql_3, [result.data.domain, result.data.lastId, formatted_date]);
+                            }
+                            console.log(res_2);
+                        } catch (err) {
+                            console.error(err);
+                            throw err;
+                        } finally {
+                            if (conn) return conn.end().then(() => {
+                                if (result.data.result === 100) {
+                                    console.log('we can get more');
+                                } else {
+                                    console.log('we got everything from this domain');
+                                }
+                            });
+                        }
+                    } else {
+                        console.log('no data');
+                    }
+                } else {
+                    console.log(`${input.domain} - ${result.message}`);
+                    if (result.message !== 'Sorry, you ran out of credits, please order more credits') {
+                        console.log('Sorry, you ran out of credits, please order more credits');
+                    } else {
+                        console.log('End');
+                        return;
+                    }
+                }
+            })
+        } else {
+            console.error(`connection could not be started for db_searcher for domain ${input.domain}`);
+        };
+    }
+}
+/*
 SNOV.reader({
-    file: 'files/domain_search_test.csv',
-    list_name: 'test_20220123'
-});
+    file: 'files/domain_search_20220407/hospitals_1.csv',
+    list_name: 'hospitals_2022_04_07'
+});*/
+
+/*
+SNOV.single_domain_search({
+    domain: 'mountsinai.org',
+    list_name: 'hospitals_2022_04_07'
+});*/
 
 /*
 SNOV.db_searcher_test({

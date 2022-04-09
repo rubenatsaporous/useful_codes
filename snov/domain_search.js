@@ -104,6 +104,7 @@ SNOV.domain_search = async function(input) {
 
     const response = await axios.default.get('https://api.snov.io/v2/domain-emails-with-info', { params: params })
                         .then((data) => {
+                            console.log(data.data);
                             const response = {
                                 success: true,
                                 data: data.data
@@ -111,6 +112,16 @@ SNOV.domain_search = async function(input) {
                             return response;
                         })
                         .catch((error) => {
+                            console.error(error.response.data);
+                            /*
+                            {
+  errors: [
+    {
+      user_id: 'Sorry, you ran out of credits, please order more credits'
+    }
+  ]
+}
+                             */
                             const response = {
                                 success: false,
                                 message: error.response.data.message
@@ -488,11 +499,11 @@ SNOV.single_domain_search = async function(input) {
         };
     }
 }
-/*
+
 SNOV.reader({
-    file: 'files/domain_search_20220407/hospitals_1.csv',
-    list_name: 'hospitals_2022_04_07'
-});*/
+    file: 'files/domain_search_20220407/Domains from DB to review_3.csv',
+    list_name: 'Domains_from_DB_to_review_2022_04_07'
+});
 
 /*
 SNOV.single_domain_search({

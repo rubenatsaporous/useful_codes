@@ -1,0 +1,48 @@
+body div.container div#input form div label {
+    width: auto;
+}
+
+body div.container div#list ul li:hover {
+    background-color: #5c6bc0 !important;
+}
+
+body div.container div#list ul li.lima {
+    border-left: solid 5px #c6ff00;
+}
+
+body div.container div#list ul li.rosa {
+    border-left: solid 5px #e91e63;
+}
+
+body div.container div#list ul li p {
+    display: inline-block;
+}
+
+body div.container div#list ul li p.checkbox {
+    width: 10%;
+    margin: 0px;
+}
+
+body div.container div#list ul li p.name {
+    width: 90%;
+    margin: 0px;
+    font-size: 24px;
+    cursor: pointer;
+}
+
+body div.container div#list ul li button {
+    position: relative;
+    top: -4px;
+}
+
+body div.container div#modal form div label {
+    width: auto;
+}
+
+body div.container div#modal {
+    padding: 20px;
+}
+
+body div.container div#modal div header p i {
+    cursor: pointer;
+}

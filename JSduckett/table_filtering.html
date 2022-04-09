@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" type="text/css">
+    <link rel="stylesheet" href="../global_css/nouislider.css" type="text/css">
+    <title>Filter</title>
+</head>
+<body>
+    <div class="container">
+        <div class="row">
+            <h3>
+                filter
+            </h3>
+        </div>
+        <div class="row">
+            <div class="col s12">
+                <form>
+                    <div class="row">
+                        <div class="input-field col s6">
+                            <input type="number" min="0" id="min">
+                            <label>min</label>
+                        </div>
+                        <div class="input-field col s6">
+                            <input type="number" max="150" id="max">
+                            <label>max</label>
+                        </div>
+                    </div>
+                    <div id="test-slider"></div>
+                </form>
+            </div>
+        </div>
+        <div class="divider"></div>
+        <div class="row" id="table">
+            <div class="col s8 offset-s2">
+                <table>
+                    <thead>
+                        <tr>
+                            <th class="center-align">
+                                NAME
+                            </th>
+                            <th class="center-align">
+                                HOURLY RATE ($)
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+    
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
+    <script src="../global_js/nouislider.js"></script>
+    <script src="./table_filtering.js"></script>
+</body>
+</html>

@@ -23,13 +23,15 @@ const data = {
 
 processor({
     domains: dummy_data,
-    position: 0 
+    position: 0,
+    list_name: 'this is a test'
 });
 
 function processor(input) {
     /*input= {
         domains,
-        position
+        position,
+        list_name
     } */
     if(input.position === input.domains.length) {
         console.log(`process finished`);
@@ -40,6 +42,10 @@ function processor(input) {
         };
 
         console.log(`processing: ${input.domains[input.position].domain} - pos ${input.position}`);
+
+        const date = new Date();
+        const formatted_date = `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+        const list_name = input.list_name;
 
         axios.default.post('https://apps.growmeorganic.com/api-product/incoming-webhook/enrich-company', data)
         .then((res) => {
@@ -106,6 +112,7 @@ function processor(input) {
                 await pool.batch(sql, res.data).then((rows) => {
                     console.log(`inserted rows in transfer table: ${rows.affectedRows}`);
                     return rows.affectedRows > 0;
+
                 }).then(async (insertedRows) => {
                     if(insertedRows) {
                         let sql_2 = `UPDATE all_contacts_3, growmeorganic_transfer
@@ -130,13 +137,13 @@ function processor(input) {
                             first_name, last_name, headline, job_title, location, business_email, personal_email,
                             phone, social_url, description, company_name, city, linkedin_id, industry, company_domain,
                             company_industry, company_address, company_country, company_founded, company_size,
-                            company_linkedin_url, company_phone, company_type, company_id
+                            company_linkedin_url, company_phone, company_type, company_id, list_name, date_added
                         )
                         SELECT
                             first_name, last_name, headline, job_title, location, business_email, personal_email,
                             phone, social_url, description, company_name, city, linkedin_id, industry, company_domain,
                             company_industry, company_address, company_country, company_founded, company_size,
-                            company_linkedin_url, company_phone, company_type, company_id
+                            company_linkedin_url, company_phone, company_type, company_id, '${list_name}', '${formatted_date}'
                         FROM growmeorganic_transfer
                     `;
 
@@ -144,6 +151,63 @@ function processor(input) {
                         console.log(`inserted contacts in growmeorganic: ${res.affectedRows}`);
                     });
 
+                }).then(async () => {
+                    let sql_4 = `INSERT INTO growmeorganic_company_transfer(
+                        company_name, company_domain, company_industry, company_address, company_country,
+                        company_founded, company_size, company_linkedin_url, company_phone, company_type, company_id
+                    )
+                    SELECT company_name, company_domain, company_industry, company_address, company_country,
+                    company_founded, company_size, company_linkedin_url, company_phone, company_type, company_id
+                    FROM growmeorganic_transfer
+                    GROUP BY company_name
+                    `;
+
+                    await pool.query(sql_4).then((res) => {
+                        console.log(`inserted companies in growmeorganic companies transfer: ${res.affectedRows}`);
+                    });
+
+                }).then(async () => {
+                    let sql_5 = `INSERT INTO growmeorganic_company(
+                        company_name, company_domain, company_industry, company_address, company_country,
+                        company_founded, company_size, company_linkedin_url, company_phone, company_type, company_id,
+                        list_name, date_added
+                    )
+                    SELECT company_name, company_domain, company_industry, company_address, company_country,
+                    company_founded, company_size, company_linkedin_url, company_phone, company_type, company_id,
+                    '${list_name}', '${formatted_date}'
+                    FROM growmeorganic_company_transfer
+                    `;
+
+                    await pool.query(sql_5).then((res) => {
+                        console.log(`inserted companies in growmeorganic companies: ${res.affectedRows}`);
+                    });
+                }).then(async () => {
+                    let sql_6 = `UPDATE all_companies_2, growmeorganic_company_transfer
+                    SET all_companies_2.website = IF(LENGTH(all_companies_2.website) = 0 OR all_companies_2.website IS NULL, growmeorganic_company_transfer.company_domain, all_companies_2.website),
+                    all_companies_2.location = IF(LENGTH(all_companies_2.location) = 0 OR all_companies_2.location IS NULL, growmeorganic_company_transfer.company_address, all_companies_2.location),
+                    all_companies_2.linkedin = IF(LENGTH(all_companies_2.linkedin) = 0 OR all_companies_2.linkedin IS NULL, growmeorganic_company_transfer.company_linkedin_url, all_companies_2.linkedin),
+                    all_companies_2.phone = IF(LENGTH(all_companies_2.phone) = 0 OR all_companies_2.phone IS NULL, growmeorganic_company_transfer.company_phone, all_companies_2.phone),
+                    all_companies_2.linkedin_id = IF(LENGTH(all_companies_2.linkedin_id) = 0 OR all_companies_2.linkedin_id IS NULL, growmeorganic_company_transfer.company_id, all_companies_2.linkedin_id)
+                    WHERE all_companies_2.company_name = growmeorganic_company_transfer.company_name
+                    `;
+
+                    await pool.query(sql_6).then((res) => {
+                        console.log(`updated companies: ${res.affectedRows}`);
+                    });
+                }).then(async () => {
+                    let sql_6 = `UPDATE all_companies_2, growmeorganic_company_transfer, ems_paises
+                    SET all_companies_2.country = ems_paises.id
+                    WHERE all_companies_2.company_name = growmeorganic_company_transfer.company_name
+                        AND (
+                            all_companies_2.country IS NULL
+                            OR all_companies_2.country = ''
+                            )
+                        AND growmeorganic_company_transfer.company_country = ems_paises.name
+                    `;
+
+                    await pool.query(sql_6).then((res) => {
+                        console.log(`updated companies countries: ${res.affectedRows}`);
+                    });
                 }).catch((err) => {
                     /*  error keys:  'text', 'sql', 'fatal', 'errno', 'sqlState', 'code' */
                     console.log(`error: ${err.text} - code: ${err.code} - errno: ${err.errno}`);
@@ -154,10 +218,16 @@ function processor(input) {
             console.log(err);
         })
         .finally(async () => {
-            let sql_4 = `DELETE FROM growmeorganic_transfer`;
+            let sql_delete = `DELETE FROM growmeorganic_transfer`;
 
-            await pool.query(sql_4).then((res) => {
+            await pool.query(sql_delete).then((res) => {
                 console.log(`growmeorganic_transfer cleaned`);
+            }).then(async () => {
+                let sql_delete_2 = `DELETE FROM growmeorganic_company_transfer`;
+
+                await pool.query(sql_delete_2).then((res) => {
+                    console.log('growmeorganic_company_transfer cleaned');
+                })
             });
             console.log('done');
             input.position += 1;

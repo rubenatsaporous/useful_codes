@@ -7,7 +7,7 @@ const pool = mariadb.createPool({
     connectionLimit: 5,
     host: 'localhost',
     port: 3306,
-    database: 'emailsdatabase',
+    database: 'ancillaryDB',
     user: 'root'
 });
 
@@ -104,7 +104,6 @@ SNOV.domain_search = async function(input) {
 
     const response = await axios.default.get('https://api.snov.io/v2/domain-emails-with-info', { params: params })
                         .then((data) => {
-                            console.log(data.data);
                             const response = {
                                 success: true,
                                 data: data.data
@@ -501,8 +500,8 @@ SNOV.single_domain_search = async function(input) {
 }
 
 SNOV.reader({
-    file: 'files/domain_search_20220407/Domains from DB to review_3.csv',
-    list_name: 'Domains_from_DB_to_review_2022_04_07'
+    file: 'files/domain_search_20220629/domains_20220629.csv',
+    list_name: 'domains_2022_06_29'
 });
 
 /*
